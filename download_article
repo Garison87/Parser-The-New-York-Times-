@@ -1,0 +1,99 @@
+import time
+import os
+import re
+import urllib.request
+import requests
+from PIL import Image
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+
+date = time.strftime('%d.%m.%Y')
+
+
+def get_html_fail(url, title):
+    """ Скачивание html страницы """
+
+    driver = webdriver.Chrome()
+    driver.get(url)
+    WebDriverWait(driver, timeout=3).until(lambda d: d.find_element(By.TAG_NAME, "footer"))
+    while True:
+        try:
+            if driver.find_element(By.CLASS_NAME, "css-uw59u"):
+                os.mkdir(f'{date}/{title}')
+                with open(f"{date}/{title}/article_html.html", 'w', encoding='utf-8') as file:
+                    file.write(driver.page_source)
+                    break
+        except Exception as _ex:
+            driver.execute_script('window.scrollBy(0, window.innerHeight)')
+            driver.implicitly_wait(2)
+    driver.close()
+    driver.quit()
+
+
+def get_article(title):
+    """ Создание txt файла со статьёй """
+
+    with open(f"{date}/{title}/article_html.html", 'r', encoding="utf-8") as file:
+        soup = BeautifulSoup(file.read(), 'html.parser')
+        section = soup.select('body')[0].find('main').select('section[name|="articleBody"]')[0]
+        picture = soup.select('body')[0].find('main').find('article').find('picture').find('img')['src']
+        img = urllib.request.urlopen(picture).read()
+        with open(f"{date}/{title}/img_article.jpeg", 'wb') as file_img:
+            file_img.write(img)
+        tag_p = section.select('p.css-at9mc1')
+        with open(f"{date}/{title}/article.txt", 'w', encoding='utf-8') as file_article:
+            for text in tag_p:
+                file_article.write(translate_func(text.text) + '\n')
+        create_img(title)
+
+
+def create_img(title):
+    """ Создание img файла из статьи """
+
+    im_1 = Image.open(f"{date}/{title}/img_article.jpeg")
+    im_2 = Image.open('logo_tnyt.jpeg')
+    im_1 = im_1.resize((600, 400))
+    new_image = Image.new('RGB', (im_1.size[0], im_1.size[1] + im_2.size[1]), (250, 250, 250))
+    new_image.paste(im_2, (0, 0))
+    new_image.paste(im_1, (0, 80))
+    new_image.save(f"{date}/{title}/some_image.jpeg", "JPEG")
+
+
+def translate_func(message):
+    """ Переводчик """
+
+    IAM_TOKEN = 't1.9euelZrLlpDJyomKkI7Hi8vImsiaz-3rnpWajoqKl8bNjZOQnpiVzMyQzc3l8_cUaVFd-e8KM0BY_d3z91QXT1357wozQFj9.5JkUQ6Y70GIfkvxE9YBJMd2Y8PHH5yg6x-jeZp92ZDbOSPODBJB7ErD4hh0sL0bqGuZO4N8J5r83s6mw96KsCQ'
+    folder_id = 'b1g0hp1jv0o3lkhso3q1'
+    target_language = 'ru'
+    text = message
+
+    body = {
+        "targetLanguageCode": target_language,
+        "texts": text,
+        "folderId": folder_id,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer {0}".format(IAM_TOKEN)
+    }
+
+    response = requests.post('https://translate.api.cloud.yandex.net/translate/v2/translate',
+                             json=body,
+                             headers=headers
+                             )
+    return response.json()['translations'][0]['text']
+
+
+def main():
+    url = 'https://www.nytimes.com/2023/04/27/business/economy/fed-powell-russia-prank-zelensky-video.html'
+    title = re.sub('[^\w_.)( -]', '', 'Российские шутники обманули председателя ФРС, основываясь на интернет-видео')
+    get_html_fail(url, title)
+    get_article(title)
+    # create_img(title)
+
+
+if __name__ == "__main__":
+    main()

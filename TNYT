@@ -1,0 +1,102 @@
+import time
+import os
+import requests
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from bs4 import BeautifulSoup
+
+
+date = time.strftime('%d.%m.%Y')
+
+
+def translate_func(message):
+    """ Переводчик """
+
+    IAM_TOKEN = ''
+    folder_id = ''
+    target_language = 'ru'
+    text = message
+
+    body = {
+        "targetLanguageCode": target_language,
+        "texts": text,
+        "folderId": folder_id,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer {0}".format(IAM_TOKEN)
+    }
+
+    response = requests.post('https://translate.api.cloud.yandex.net/translate/v2/translate',
+                             json=body,
+                             headers=headers
+                             )
+    return response.json()['translations'][0]['text']
+
+
+def get_html_fail(url):
+    """ Скачивание html страницы """
+    driver = webdriver.Chrome()
+    driver.get(url)
+    WebDriverWait(driver, timeout=3).until(lambda d: d.find_element(By.TAG_NAME, "footer"))
+    while True:
+        try:
+            if driver.find_element(By.CLASS_NAME, "css-uw59u"):
+                os.mkdir(f'{date}')
+                with open(f"{date}\{date}.html", 'w', encoding='utf-8') as file:
+                    file.write(driver.page_source)
+                    break
+        except Exception as _ex:
+            driver.execute_script('window.scrollBy(0, window.innerHeight)')
+            driver.implicitly_wait(3)
+    driver.close()
+    driver.quit()
+
+
+def search_articles_titles():
+    """ Поиск статей с помощью BeautifulSoup """
+    with open(f"{date}\{date}.html", 'r', encoding="utf-8") as file:
+        soup = BeautifulSoup(file.read(), 'html.parser')
+        all_sections = soup.select('body')[0].find('main').select('#collection-todays-new-york-times')[0]
+        sections_articles = all_sections.select('section.css-12etkvn')
+        for section in sections_articles:
+            name_section = section.select('[name]')[0].attrs['name']
+            name_page = translate_func(section.find('h2').text.strip())
+            # name_page = section.find('h2').text.strip()
+            if name_section in 'thefrontpage':
+                articles_one = section.select('li.eb97p613')
+                articles_two = section.select('li.css-i435f0')
+                creating_file_with_articles_titles(articles_one + articles_two, name_page)
+            else:
+                articles = section.select('li.css-i435f0')
+                creating_file_with_articles_titles(articles, name_page)
+
+
+def creating_file_with_articles_titles(list_articles, name_page):
+    """ Создание txt файла с именем секции и заголовками статей в этой секции """
+    with open(f"{date}\{name_page}.txt", 'a', encoding='utf-8') as file:
+        for line in list_articles:
+            if len(line.find_all('ol')) > 0:
+                articles = line.find_all('ol')[0].find_all('li')
+                for article in articles:
+                    # title_article = translate_func(article.find('h2').text.strip())
+                    title_article = translate_func(article.find('h2').find('a').text.strip())
+                    url_article = article.find('h2').find('a')['href']
+                    file.write(f"{title_article} : https://www.nytimes.com{url_article}\n")
+            else:
+                title_article = translate_func(line.find('h2').text.strip())
+                # title_article = translate_func(line.find('h2').find('a').text.strip())
+                url_article = line.find('a')['href']
+                file.write(f"{title_article} : https://www.nytimes.com{url_article}\n")
+
+
+def main():
+    url = 'https://www.nytimes.com/section/todayspaper?redirect_uri=https%3A%2F%2Fwww.nytimes.com%2F'
+    get_html_fail(url)
+    search_articles_titles()
+
+
+if __name__ == "__main__":
+    main()
